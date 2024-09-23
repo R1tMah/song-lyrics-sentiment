@@ -1,83 +1,40 @@
-import zipfile
-import os
+from flask import Flask, request, jsonify 
+import tensorflow as tf
 import pandas as pd
 import numpy as np
-import tensorflow as tf
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import precision_score, recall_score, f1_score
 from keras.preprocessing.text import Tokenizer
 from keras.utils import pad_sequences
+from bs4 import BeautifulSoup
+import requests
+import math
+
+app = Flask(__name__)
+GENIUS_API_TOKEN = '4wc7clE6jVqRtRR0JZfyWvsIGo9pVz72WiaRXTQcU707eWMt5nNXfkxx3Xh1IMMi0NxoVtseb-0_kTDSAGwfmw'
+model = tf.keras.models.load_model('sentiment-analysis-model.h5')
+
+data = pd.read_csv("data/filteredData.csv")
+data['seq'] = data['seq'].fillna('').astype(str)
+tokenizer = Tokenizer(num_words=30000, oov_token="<OOV>")
+tokenizer.fit_on_texts(data['seq']) # Fit on training data
 
 
+@app.route('/analyze', methods=['POST'])
+def analyze_sentiment():
+    data = request.get_json()
+    text = data.get('text')
 
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400
 
+    # Perform sentiment analysis (you can use any sentiment model/library)
+    sequences = tokenizer.texts_to_sequences([text])  # Convert text to sequence of tokens
+    padded_sequence = pad_sequences(sequences, maxlen=100, padding='post')  # Pad sequences
 
+    # Get the sentiment prediction
+    prediction = model.predict(padded_sequence)
+    sentiment_score = float(prediction[0][0])  # Convert numpy array to float
+    sentiment_score = math.ceil(sentiment_score * 10000) / 100
+    return jsonify({'sentiment': sentiment_score})
 
-
-
-# Define paths
-zip_file_path = 'archive.zip'
-extract_dir = 'data/unfilteredData.csv'
-
-
-# Create the directory if it doesn't exist
-if not os.path.exists(extract_dir):
-    print("going into this")
-    os.makedirs(extract_dir)
-    with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_dir)
-    print(f"Extracted all files to {extract_dir}")
-
-
-   
-   
-   
-
-
-
-
-data = pd.read_csv("data/unfilteredData.csv")
-
-
-data['seq'] = data['seq'].apply(lambda x: x.lower())
-data['seq'] = data['seq'].apply(lambda x: ''.join([c for c in x if c.isalpha() or c.isspace()]))
-data.to_csv("data/filteredData.csv", index = False)
-
-
-print("Starting the model part. ")
-
-
-tokenizer = Tokenizer(num_words= 10000, oov_token= "<OOV>")
-tokenizer.fit_on_texts(data['seq'])#lol
-sequences = tokenizer.texts_to_sequences(data['seq'])
-padded_sequences = pad_sequences(sequences, maxlen=100, truncating='post', padding='post')
-
-
-labels = data['label'].values.astype(np.float32)
-
-
-X_train, X_test, y_train, y_test = train_test_split(padded_sequences, labels, test_size=0.2, random_state=42)
-
-
-model = tf.keras.Sequential([
-    tf.keras.layers.Embedding(30000, 32, input_length=100),
-    tf.keras.layers.GlobalAveragePooling1D(),
-    tf.keras.layers.Dense(64, activation='relu'),
-    tf.keras.layers.Dense(32, activation='relu'),
-    tf.keras.layers.Dense(1)
-])
-
-
-model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mae'])
-
-
-model.fit(X_train, y_train, epochs=10, validation_data=(X_test, y_test), verbose=2)
-
-
-loss, accuracy = model.evaluate(X_test, y_test, verbose=2)
-print(f"Test Accuracy: {accuracy * 100:.2f}%")
-
-
-
-
-
+if __name__ == '__main__':
+    app.run(port=3000, debug=True)
